@@ -1,0 +1,9 @@
+#+TITLE: Example Roadmap
+* Work
+** A1: First
+:PROPERTIES:
+:state: active
+:END:
+*** Checks
+- test_name: first_check
+  status: pending

@@ -1,0 +1,124 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+  archives:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            labels: '["self-hosted","linux","x64"]'
+            target: x86_64-unknown-linux-musl
+          - name: linux-arm64
+            labels: '["self-hosted","linux","arm64"]'
+            target: aarch64-unknown-linux-musl
+          - name: macos-arm64
+            labels: '["self-hosted","macos","arm64"]'
+            target: aarch64-apple-darwin
+          - name: windows-x64
+            labels: '["self-hosted","windows","x64"]'
+            target: x86_64-pc-windows-msvc
+          - name: windows-arm64
+            labels: '["self-hosted","windows","arm64"]'
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ fromJSON(matrix.labels) }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: .node-version
+      - run: node scripts/toolchain-config.mjs
+        id: toolchain
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: ${{ matrix.target }}
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2
+        with:
+          tool: just@1.51.0
+      - run: just dist
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: release-native-${{ matrix.name }}
+          path: .result/dist/*.tar.gz*
+          retention-days: 1
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: release-logs-${{ matrix.name }}
+          path: .result/logs/
+          include-hidden-files: true
+          retention-days: 1
+  publish:
+    needs: archives
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    environment: release
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+      - uses: metacraft-labs/metacraft-github-actions/assert-workflow-triggers@78e370308303988eaec3cdae42ebf7b48021e550
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: release-native-*
+          path: .result/release/
+          merge-multiple: true
+      - uses: metacraft-labs/devops-modules/.github/setup-nix@3af6ffd448504feced0db0a5001d328c9d3f099a
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: .node-version
+          registry-url: https://registry.npmjs.org
+      - run: nix develop --command just release-package
+      - run: nix develop --command just release-sign
+        env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          RELEASE_GPG_FINGERPRINT: ${{ vars.RELEASE_GPG_FINGERPRINT }}
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      - run: nix develop --command node scripts/publish.mjs
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: publish-logs
+          path: .result/logs/
+          include-hidden-files: true
+          retention-days: 1
+  archive:
+    needs: [archives, publish]
+    if: always()
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          path: .result/ci-artifacts/
+      - uses: metacraft-labs/devops-modules/.github/setup-nix@3af6ffd448504feced0db0a5001d328c9d3f099a
+      - name: Mirror release evidence
+        continue-on-error: true
+        env:
+          MCL_S3_ARTIFACTS_ENDPOINT: ${{ vars.MCL_S3_ARTIFACTS_ENDPOINT }}
+          MCL_S3_ARTIFACTS_BUCKET: ${{ vars.MCL_S3_ARTIFACTS_BUCKET }}
+          MCL_S3_ARTIFACTS_REGION: ${{ vars.MCL_S3_ARTIFACTS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.MCL_S3_ARTIFACTS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MCL_S3_ARTIFACTS_SECRET_ACCESS_KEY }}
+          AWS_EC2_METADATA_DISABLED: "true"
+        run: nix shell --inputs-from . nixpkgs#awscli2 --command bash scripts/mirror-artifacts.sh .result/ci-artifacts

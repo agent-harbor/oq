@@ -5,3 +5,5 @@
 /result
 /.result/
 *.ct
+/bindings/js/dist/
+*.tgz

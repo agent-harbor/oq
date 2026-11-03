@@ -1,0 +1,34 @@
+#+TITLE: Unicode café Roadmap
+
+* Work
+  :PROPERTIES:
+  :OWNER: Zoë
+  :END:
+** A1: Build
+    :PROPERTIES:
+    :state: active
+    :END:
+*** Checks
+    - test_name: builds_without_network
+      file: tests/build.rs
+      description: checks the complete result
+        including the Unicode payload
+      status: pending
+    - [ ] ordinary task
+      - [X] nested task
+
+| Name | State |
+|------+-------|
+| α    | ready |
+
+#+begin_src org
+,* Pretend heading
+:PROPERTIES:
+:fake: ignored
+:END:
+- [ ] pretend task
+| fake | table |
+,#+TITLE: Pretend title
+#+end_src
+* Work
+Second occurrence.

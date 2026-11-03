@@ -1,0 +1,346 @@
+# oq complete technical reference
+> Query, edit and validate Org documents through one Rust engine.
+
+## Compiled CLI contract
+```text
+oq — query, edit, and validate Org documents
+
+Usage:
+  oq query <jq-expression> <file.org>
+  oq <jq-expression> <file.org>
+  oq set [-i|--in-place] <jq-transformation> <file.org>
+  oq validate --schema <schema.toml> <file.org>
+  oq --help | oq -h
+  oq --version
+
+Options:
+  -h, --help         Show this help; use as a standalone invocation.
+  --version          Show the compiled version; use alone.
+  -i, --in-place     For set only: update the input file atomically, with no stdout.
+  --schema <path>    Required for validate: explicit TOML schema, with no default.
+
+Output and defaults:
+  query emits compact newline-separated JSON values, not an enclosing array.
+  empty emits nothing; false and null emit JSON values. Each still exits 0.
+  An array result is one JSON value; use .[] to emit its items.
+  Without -i, set writes edited Org to stdout and leaves its input unchanged.
+  validate writes one JSON report: {"mode":null,"diagnostics":[]} when valid.
+  Each diagnostic has rule_id, severity (error/warning), line (1-based or null),
+  and message. Warnings alone succeed; error diagnostics exit 1.
+  Inputs and schemas are UTF-8 files. No command prompts for input.
+
+Schemas:
+  TOML requires version = 1. Add [[rules]] with id, assert (a jq predicate),
+  and message; select defaults to ".", severity to "error", min_matches to 0.
+  Use min_matches = 1 when an empty selection must fail. Assertions must emit
+  exactly one boolean. Optional [[modes]] choose the first matching mode.
+
+Environment:
+  No oq-specific runtime environment variables or ambient configuration files.
+  Files and schemas come only from explicit arguments; no schema autodiscovery.
+  Build/install tools have their own environment; this describes the oq CLI.
+
+Safety:
+  set accepts supported scalar edits and new properties, not arbitrary tree edits.
+  Invalid edits leave the input unchanged. In-place edits preserve permissions
+  and require a writable regular file; symlinks are rejected.
+  Expressions have no shell/process or external-module file loader. env, now,
+  debug, stderr, and halt_error are unavailable; halt returns an error.
+  Expressions can consume CPU/memory; this is not an untrusted-code sandbox.
+
+Exit codes:
+  0  Success, including empty/false/null query results and warning-only validation.
+  1  Document validation has at least one error diagnostic (JSON on stdout).
+  2  Usage, I/O, expression/edit, malformed schema, or schema-evaluation error.
+    Error text is written to stderr.
+
+Runnable schema examples and complete library reference: repository llms-full.txt.
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `-h, --help` | Show this help; use as a standalone invocation. |
+| `--version` | Show the compiled version; use alone. |
+| `-i, --in-place` | For set only: update the input file atomically, with no stdout. |
+| `--schema <path>` | Required for validate: explicit TOML schema, with no default. |
+
+## Runnable validation workflow
+Run these blocks in order in an empty directory with `oq` on `PATH`.
+
+<!-- oq:case:valid -->
+
+```sh
+cat > note.org <<'ORG'
+* Note
+:PROPERTIES:
+:state: ready
+:END:
+ORG
+cat > strict.toml <<'TOML'
+version = 1
+[[rules]]
+id = "note.state"
+select = ".children[]"
+assert = '.properties.state == "ready"'
+message = "State must be ready"
+line = ".property_lines.state // .line"
+min_matches = 1
+TOML
+oq validate --schema strict.toml note.org
+```
+
+Exit 0: JSON report with no diagnostics. The rule requires a note in state `ready`.
+
+<!-- oq:case:rejected -->
+
+```sh
+oq set -i '.children[0].properties.state = "blocked"' note.org
+oq validate --schema strict.toml note.org
+```
+
+Exit 1: JSON error `note.state` at line 3. The in-place edit itself is silent.
+
+<!-- oq:case:warning -->
+
+```sh
+cp strict.toml warning.toml
+printf '\nseverity = "warning"\n' >> warning.toml
+oq validate --schema warning.toml note.org
+```
+
+Exit 0: the same violation is a warning diagnostic, not an error.
+
+<!-- oq:case:malformed -->
+
+```sh
+printf 'version = [\n' > broken.toml
+oq validate --schema broken.toml note.org
+```
+
+Exit 2: malformed schema; error text on stderr.
+
+<!-- oq:case:usage -->
+
+```sh
+oq validate note.org
+```
+
+Exit 2: `--schema` is required even if a schema file exists nearby.
+
+## Automation and security
+Commands never prompt. Parse query output as a JSON stream, not one enclosing
+array; a query returning an array emits that array as a single line. Use the
+exit status as documented above: false/null are data, not failures.
+
+Validation reports contain mode and diagnostics. Each diagnostic contains a
+schema-defined rule_id/message, severity, and a 1-based line or null. A schema
+with only version=1 is valid but has no checks; use real rules and min_matches
+when selection is required. Schema syntax/evaluation failures exit 2, distinct
+from document rejection at exit 1.
+
+The CLI reads its named UTF-8 input/schema files. There is no oq environment
+configuration, schema search, network service, shell execution, or module file
+loader. The OS still supplies normal process startup/PATH. Build/publish tooling
+has separate configuration described in the contributor guide. In-place edits
+write only the named regular file after validation, via a same-directory atomic
+replacement, retaining permissions and rejecting symlinks/read-only files.
+Treat jq predicates as caller-supplied code: CPU/memory use is not sandboxed.
+
+## Libraries and architecture
+oq-core provides parse(source), query(source, expression), set(source, expression),
+validate(source, schema_toml), and Schema::from_toml(schema_toml). Fallible Rust
+operations return Result, never terminate the host process, and do not perform
+CLI filesystem I/O. The CLI adapts these APIs to files and exit codes.
+
+The @agent-harbor/oq package exports async createOq(bytes_or_module). Await it to
+get parse, query, set and validate methods. It executes the same Rust core through
+WebAssembly, with no global CLI dependency or duplicate JavaScript parser. The
+typed wrapper owns and frees buffers and turns structured errors into exceptions.
+The detailed model/schema/ABI contract follows, derived from its canonical page.
+
+# Document, query, mutation, and schema contract
+
+The Rust library, command-line application, and JavaScript bindings share one
+engine. Org syntax is recognized by [orgize](https://github.com/PoiScript/orgize)
+and jq expressions by [jaq](https://github.com/01mf02/jaq). They are not inferred
+from file extensions or application-specific property names.
+
+## Parsed document
+
+`parse(source)` returns a JSON-compatible document. `children` contains all
+top-level headings in source order; each heading has `children` recursively.
+`sections` is a lookup of top-level headings by exact title; when titles
+repeat it addresses the first, while `children` retains every occurrence.
+The two views refer to the same source locations. Every heading exposes:
+
+- `title`, `level`, `line` (one-based), `start`, `end` (UTF-8 byte offsets);
+- `properties` (lowercase keys and string values), `property_lines`,
+  `property_order`, and `drawer_stray_lines`;
+- `content`: direct body lines with `text` and `line`, excluding the property
+  drawer and descendant headings;
+- `items`: list items, including nested items, with `text`, `checkbox`
+  (`" "`, `"X"`, `"-"`, or null), `line`, `indent`, `fields` and `field_lines`;
+- `tables`: arrays of rows, each with `cells` and `line`; rule rows are omitted.
+
+The document also exposes `title`, `title_line`, `keywords` (key/value/line),
+`content`, `items`, and `tables` for the preamble. Valid literal blocks keep
+their contents opaque. As the [Org manual](https://orgmode.org/manual/Literal-Examples.html)
+requires, comma-quote heading-like and keyword-like example lines (`,*` and
+`,#+`). An unescaped column-zero `*` remains a heading even inside a block;
+`oq` delegates that grammar to orgize. Nested headings retain their
+actual levels. Parsing is tolerant: malformed drawers remain observable for
+schema diagnostics instead of being silently repaired.
+
+`fields` interprets a list item's first `name: value` line and its aligned
+continuation fields as a description record. Continuation text is retained,
+including multiline values. This is an optional structured view over Org list
+items, not a YAML parser. Native `term :: definition` items also expose fields.
+
+## Queries and edits
+
+Recursive jq traversal (`..`) visits both root views. Select through `children`
+when a rule should visit each source heading once, for example
+`.children[] | recurse(.children[]?)`. A selector's emitted values determine its
+diagnostics; the engine does not silently deduplicate equal values.
+
+`query(source, expression)` returns every JSON value emitted by the jq program.
+It supports jaq's standard JSON operators and pure functions, plus jq's `IN`
+stream-membership helper. Environment/clock functions (`env`, `now`) and logging
+or process-oriented helpers (`debug`, `stderr`, `halt_error`) are deliberately
+unavailable in both native and WASM execution. Modules cannot load external
+files. `halt` returns an evaluation error instead of terminating its host.
+Invalid programs fail explicitly. Sources are limited to 32 MiB; query
+streams are limited to 100,000 outputs per call.
+For example:
+
+```sh
+oq query '.sections["Work"].children[] | select(.properties.state == "active")' work.org
+oq query '[.. | objects | select(has("checkbox")) | .text]' work.org
+oq set -i '.sections.Work.children[0].properties.state = "done"' work.org
+```
+
+`set` evaluates a jq transformation of the parsed document. It must return
+exactly one document with the original structure. Writable scalars are the
+document title, heading titles, existing property values, item text and checkbox
+states, description-record values, and table cells. New properties may be added
+to a heading's `properties` map; a missing drawer is inserted after the heading
+and its optional Org planning line, using the local newline style. Other keys, arrays,
+metadata, and deletions are read-only. Unsupported edits fail before any file
+write. Strings containing line breaks, structural delimiters, or values that
+change the parsed structure are rejected. Multiline description fields are
+queryable; mutation of a multiline field is rejected to avoid discarding layout.
+
+Edits replace only the selected scalar's byte span. Untargeted bytes, spacing,
+line endings, and the final newline are preserved. Changes through duplicate
+views of the same span must agree. Conflicting or overlapping edits fail.
+Mutating several independent scalars in one expression is supported. Reparse
+checks prevent an edit from changing the document's structural shape.
+
+The CLI writes through a same-directory temporary file and atomic rename,
+preserving file permissions. Symlinks are rejected for in-place updates rather
+than replacing their directory entries. Document validation error diagnostics
+use exit 1 and a JSON report on stdout. Warnings alone and successful commands
+use exit 0. Usage, I/O, expression/edit, malformed-schema and schema evaluation
+errors use exit 2 and error text on stderr. CLI `query` emits newline-separated
+JSON values; CLI `validate` emits one JSON report. To inspect a parsed document
+through the CLI, use `oq query '.' file.org`. `parse(source)` is a library API.
+
+## Declarative schemas
+
+Schemas are TOML documents with `version = 1`, ordered `[[modes]]`, and
+`[[rules]]`. Unknown fields, duplicate names/ids, invalid jq programs, unknown
+modes, and invalid types are errors, including rules in inactive modes. Regexes
+are evaluated by jq's `test`/`match` functions; an invalid dynamically supplied
+pattern is an evaluation error, never a successful assertion.
+No application grammar is compiled into the engine.
+
+```toml
+version = 1
+
+[[modes]]
+name = "single"
+when = '.children | length == 1'
+
+[[modes]]
+name = "multiple"
+when = 'true'
+
+[[rules]]
+id = "entry.scope"
+select = '.children[]'
+assert = '.properties.scope | IN("global", "project", "repository")'
+message = "Invalid or missing scope"
+line = '.property_lines.scope // .line'
+severity = "error"
+
+[[rules]]
+id = "entry.project"
+select = '.children[] | select(.properties.scope == "project")'
+assert = '(.properties.project // "") | length > 0'
+message = "Project scope requires a project"
+
+[[rules]]
+id = "entry.refs"
+select = '.children[]'
+assert = '(.properties.refs // "") | test("^\\S+(,\\s*\\S+)*$")'
+message = "References must be a nonempty coordinate list"
+
+[[rules]]
+id = "entry.body"
+select = '.children[]'
+assert = '[.content[] | select(.text | test("\\S"))] | length <= 12'
+message = "Body exceeds twelve nonempty lines"
+
+[[rules]]
+id = "entry.body.warning"
+select = '.children[]'
+assert = '[.content[] | select(.text | test("\\S"))] | length <= 6'
+message = "Prefer six body lines"
+severity = "warning"
+```
+
+Each mode's `when` runs against the complete document and must return exactly
+one boolean. The first matching mode wins; no match is a diagnostic. With no
+modes the mode is null. A rule's optional `modes` list limits its applicability.
+The default selector is `.`. The assertion must return exactly one boolean;
+zero outputs is an error, never an accidental pass. Each false result produces
+one diagnostic. Optional `min_matches` rejects an empty or undersized selection.
+
+`message` is literal; optional `message_query` instead computes exactly one
+string against the selected node, allowing exact contextual diagnostics.
+`line` computes one positive integer or null (default `.line // null`).
+Diagnostics preserve rule order and selection order, with `rule_id`, `severity`,
+`line`, and `message`. Schema and evaluation errors are returned separately from
+document validation failures.
+
+The same primitives express title suffixes (`endswith`), required/allowed and
+prohibited sections (`has`, `keys`, `all`, `startswith`), drawer key sets,
+enums (`IN`), patterns (`test`), conditional required properties (`if`), direct
+child requirements, subsection prefixes, description-record fields, table
+columns, and body limits. File modes are schema data. An overlay replaces the
+schema input; it requires no Rust rebuild.
+
+## Library and WebAssembly
+
+`oq_core::{parse, query, set, validate, Schema}` accept source strings; all
+fallible operations return `Result`. Filesystem writes belong to the CLI only.
+No library operation exits the process or reads ambient configuration.
+
+The WASM boundary passes UTF-8 JSON requests to the same Rust functions.
+`oq_alloc(length)` returns an owned zeroed buffer, `oq_execute(ptr,length)`
+borrows it and returns a separate response allocation encoded as
+`(pointer << 32) | length`, and `oq_free(ptr,length)` releases exactly one
+allocation. The caller must pass only live allocated ranges. The TypeScript
+wrapper owns both allocations, refreshes memory views after calls, frees in
+`finally`, and translates structured errors into exceptions. There is no shared
+result buffer or global state. WebAssembly modules are instantiated without
+imports, and the Node tests exercise the compiled module directly.
+
+## Documentation
+- [README](README.md): install/start.
+- [Guide](docs/index.md): index.
+- [Contract](docs/contract.md): model, schema and API.
+- [Validation](docs/fragments/validation-example.md): executable examples.
+- [Build](docs/contributors/README.md): contributor setup.
+- [Agents](AGENTS.md): work commands.
+- [Full](llms-full.txt): complete reference.

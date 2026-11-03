@@ -1,0 +1,32 @@
+{
+  "name": "@agent-harbor/oq",
+  "version": "0.1.0",
+  "description": "Query, edit, and validate Org-mode documents with the shared Rust engine",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./bindings/js/dist/index.d.ts",
+      "import": "./bindings/js/dist/index.js"
+    },
+    "./oq.wasm": "./bindings/js/dist/oq.wasm"
+  },
+  "files": [
+    "bindings/js/dist",
+    "README.md",
+    "LICENSE",
+    "docs/contract.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build-bindings.mjs",
+    "prepare": "npm run build",
+    "test": "node --test bindings/js/tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agent-harbor/oq.git"
+  }
+}

@@ -1,0 +1,52 @@
+oq — query, edit, and validate Org documents
+
+Usage:
+  oq query <jq-expression> <file.org>
+  oq <jq-expression> <file.org>
+  oq set [-i|--in-place] <jq-transformation> <file.org>
+  oq validate --schema <schema.toml> <file.org>
+  oq --help | oq -h
+  oq --version
+
+Options:
+  -h, --help         Show this help; use as a standalone invocation.
+  --version          Show the compiled version; use alone.
+  -i, --in-place     For set only: update the input file atomically, with no stdout.
+  --schema <path>    Required for validate: explicit TOML schema, with no default.
+
+Output and defaults:
+  query emits compact newline-separated JSON values, not an enclosing array.
+  empty emits nothing; false and null emit JSON values. Each still exits 0.
+  An array result is one JSON value; use .[] to emit its items.
+  Without -i, set writes edited Org to stdout and leaves its input unchanged.
+  validate writes one JSON report: {"mode":null,"diagnostics":[]} when valid.
+  Each diagnostic has rule_id, severity (error/warning), line (1-based or null),
+  and message. Warnings alone succeed; error diagnostics exit 1.
+  Inputs and schemas are UTF-8 files. No command prompts for input.
+
+Schemas:
+  TOML requires version = 1. Add [[rules]] with id, assert (a jq predicate),
+  and message; select defaults to ".", severity to "error", min_matches to 0.
+  Use min_matches = 1 when an empty selection must fail. Assertions must emit
+  exactly one boolean. Optional [[modes]] choose the first matching mode.
+
+Environment:
+  No oq-specific runtime environment variables or ambient configuration files.
+  Files and schemas come only from explicit arguments; no schema autodiscovery.
+  Build/install tools have their own environment; this describes the oq CLI.
+
+Safety:
+  set accepts supported scalar edits and new properties, not arbitrary tree edits.
+  Invalid edits leave the input unchanged. In-place edits preserve permissions
+  and require a writable regular file; symlinks are rejected.
+  Expressions have no shell/process or external-module file loader. env, now,
+  debug, stderr, and halt_error are unavailable; halt returns an error.
+  Expressions can consume CPU/memory; this is not an untrusted-code sandbox.
+
+Exit codes:
+  0  Success, including empty/false/null query results and warning-only validation.
+  1  Document validation has at least one error diagnostic (JSON on stdout).
+  2  Usage, I/O, expression/edit, malformed schema, or schema-evaluation error.
+    Error text is written to stderr.
+
+Runnable schema examples and complete library reference: repository llms-full.txt.

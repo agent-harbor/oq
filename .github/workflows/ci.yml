@@ -1,0 +1,129 @@
+name: CI
+on:
+  push:
+    branches: [dev, stable]
+  pull_request:
+    branches: [dev, stable]
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            labels: '["self-hosted","linux","x64"]'
+            target: x86_64-unknown-linux-musl
+          - name: linux-arm64
+            labels: '["self-hosted","linux","arm64"]'
+            target: aarch64-unknown-linux-musl
+          - name: macos-arm64
+            labels: '["self-hosted","macos","arm64"]'
+            target: aarch64-apple-darwin
+          - name: windows-x64
+            labels: '["self-hosted","windows","x64"]'
+            target: x86_64-pc-windows-msvc
+          - name: windows-arm64
+            labels: '["self-hosted","windows","arm64"]'
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ fromJSON(matrix.labels) }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: node scripts/toolchain-config.mjs
+        id: toolchain
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          components: rustfmt,clippy
+          targets: wasm32-unknown-unknown,${{ matrix.target }}
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2
+        with:
+          tool: just@1.51.0
+      - run: just test
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: test-${{ matrix.name }}
+          path: .result/logs/
+          include-hidden-files: true
+          retention-days: 1
+  lint:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+      - uses: metacraft-labs/metacraft-github-actions/assert-workflow-triggers@78e370308303988eaec3cdae42ebf7b48021e550
+      - uses: metacraft-labs/devops-modules/.github/setup-nix@3af6ffd448504feced0db0a5001d328c9d3f099a
+      - run: nix develop --command npm ci --ignore-scripts
+      - run: nix develop --command just lint
+      - run: nix develop --command just test-workflow-triggers
+      - run: nix develop --command just test-release
+      - run: nix develop --command just test-halt-mutation
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: lint
+          path: .result/logs/
+          include-hidden-files: true
+          retention-days: 1
+  nix-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            labels: '["self-hosted","linux","x64"]'
+          - name: linux-arm64
+            labels: '["self-hosted","linux","arm64"]'
+          - name: macos-arm64
+            labels: '["self-hosted","macos","arm64"]'
+    runs-on: ${{ fromJSON(matrix.labels) }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: metacraft-labs/devops-modules/.github/setup-nix@3af6ffd448504feced0db0a5001d328c9d3f099a
+      - run: nix develop --command node scripts/logged.mjs nix-build nix build --no-link -L .#default
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: nix-build-${{ matrix.name }}
+          path: .result/logs/
+          include-hidden-files: true
+          retention-days: 1
+  archive:
+    needs: [test, lint, nix-build]
+    if: always()
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          path: .result/ci-artifacts/
+      - uses: metacraft-labs/devops-modules/.github/setup-nix@3af6ffd448504feced0db0a5001d328c9d3f099a
+      - name: Mirror full logs to configured artifact store
+        continue-on-error: true
+        env:
+          MCL_S3_ARTIFACTS_ENDPOINT: ${{ vars.MCL_S3_ARTIFACTS_ENDPOINT }}
+          MCL_S3_ARTIFACTS_BUCKET: ${{ vars.MCL_S3_ARTIFACTS_BUCKET }}
+          MCL_S3_ARTIFACTS_REGION: ${{ vars.MCL_S3_ARTIFACTS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.MCL_S3_ARTIFACTS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MCL_S3_ARTIFACTS_SECRET_ACCESS_KEY }}
+          AWS_EC2_METADATA_DISABLED: "true"
+        run: nix shell --inputs-from . nixpkgs#awscli2 --command bash scripts/mirror-artifacts.sh .result/ci-artifacts

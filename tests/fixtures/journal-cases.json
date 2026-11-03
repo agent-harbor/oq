@@ -1,0 +1,307 @@
+[
+  {
+    "name": "valid",
+    "source": "* Note\n:PROPERTIES:\n:scope: global\n:refs: repo/path#entry\n:END:\nA short body.\n",
+    "status": 0,
+    "parsed": {
+      "line": 1,
+      "properties": {
+        "scope": "global",
+        "refs": "repo/path#entry"
+      },
+      "property_lines": {
+        "scope": 3,
+        "refs": 4
+      },
+      "property_order": ["scope", "refs"],
+      "nonempty_content": [
+        {
+          "line": 6,
+          "text": "A short body."
+        }
+      ]
+    },
+    "report": {
+      "mode": null,
+      "diagnostics": []
+    }
+  },
+  {
+    "name": "missing-refs",
+    "source": "* Note\n:PROPERTIES:\n:scope: global\n:END:\nA short body.\n",
+    "status": 1,
+    "parsed": {
+      "line": 1,
+      "properties": {
+        "scope": "global"
+      },
+      "property_lines": {
+        "scope": 3
+      },
+      "property_order": ["scope"],
+      "nonempty_content": [
+        {
+          "line": 5,
+          "text": "A short body."
+        }
+      ]
+    },
+    "report": {
+      "mode": null,
+      "diagnostics": [
+        {
+          "rule_id": "entry.refs",
+          "severity": "error",
+          "line": 1,
+          "message": "Missing references"
+        }
+      ]
+    }
+  },
+  {
+    "name": "missing-project",
+    "source": "* Note\n:PROPERTIES:\n:scope: project\n:refs: repo/path#entry\n:END:\nA short body.\n",
+    "status": 1,
+    "parsed": {
+      "line": 1,
+      "properties": {
+        "scope": "project",
+        "refs": "repo/path#entry"
+      },
+      "property_lines": {
+        "scope": 3,
+        "refs": 4
+      },
+      "property_order": ["scope", "refs"],
+      "nonempty_content": [
+        {
+          "line": 6,
+          "text": "A short body."
+        }
+      ]
+    },
+    "report": {
+      "mode": null,
+      "diagnostics": [
+        {
+          "rule_id": "entry.project",
+          "severity": "error",
+          "line": 1,
+          "message": "Project scope requires project"
+        }
+      ]
+    }
+  },
+  {
+    "name": "missing-repositories",
+    "source": "* Note\n:PROPERTIES:\n:scope: repository\n:refs: repo/path#entry\n:END:\nA short body.\n",
+    "status": 1,
+    "parsed": {
+      "line": 1,
+      "properties": {
+        "scope": "repository",
+        "refs": "repo/path#entry"
+      },
+      "property_lines": {
+        "scope": 3,
+        "refs": 4
+      },
+      "property_order": ["scope", "refs"],
+      "nonempty_content": [
+        {
+          "line": 6,
+          "text": "A short body."
+        }
+      ]
+    },
+    "report": {
+      "mode": null,
+      "diagnostics": [
+        {
+          "rule_id": "entry.repository",
+          "severity": "error",
+          "line": 1,
+          "message": "Repository scope requires repositories"
+        }
+      ]
+    }
+  },
+  {
+    "name": "bloated-body",
+    "source": "* Note\n:PROPERTIES:\n:scope: global\n:refs: repo/path#entry\n:END:\nA short body.\nline\nline\nline\nline\nline\nline\nline\nline\nline\nline\nline\nline\nline\nline\nline\nline\nline\nline\nline\nline\n",
+    "status": 1,
+    "parsed": {
+      "line": 1,
+      "properties": {
+        "scope": "global",
+        "refs": "repo/path#entry"
+      },
+      "property_lines": {
+        "scope": 3,
+        "refs": 4
+      },
+      "property_order": ["scope", "refs"],
+      "nonempty_content": [
+        {
+          "line": 6,
+          "text": "A short body."
+        },
+        {
+          "line": 7,
+          "text": "line"
+        },
+        {
+          "line": 8,
+          "text": "line"
+        },
+        {
+          "line": 9,
+          "text": "line"
+        },
+        {
+          "line": 10,
+          "text": "line"
+        },
+        {
+          "line": 11,
+          "text": "line"
+        },
+        {
+          "line": 12,
+          "text": "line"
+        },
+        {
+          "line": 13,
+          "text": "line"
+        },
+        {
+          "line": 14,
+          "text": "line"
+        },
+        {
+          "line": 15,
+          "text": "line"
+        },
+        {
+          "line": 16,
+          "text": "line"
+        },
+        {
+          "line": 17,
+          "text": "line"
+        },
+        {
+          "line": 18,
+          "text": "line"
+        },
+        {
+          "line": 19,
+          "text": "line"
+        },
+        {
+          "line": 20,
+          "text": "line"
+        },
+        {
+          "line": 21,
+          "text": "line"
+        },
+        {
+          "line": 22,
+          "text": "line"
+        },
+        {
+          "line": 23,
+          "text": "line"
+        },
+        {
+          "line": 24,
+          "text": "line"
+        },
+        {
+          "line": 25,
+          "text": "line"
+        },
+        {
+          "line": 26,
+          "text": "line"
+        }
+      ]
+    },
+    "report": {
+      "mode": null,
+      "diagnostics": [
+        {
+          "rule_id": "entry.body",
+          "severity": "error",
+          "line": 1,
+          "message": "Body exceeds twelve lines"
+        },
+        {
+          "rule_id": "entry.body.advisory",
+          "severity": "warning",
+          "line": 1,
+          "message": "Prefer six lines"
+        }
+      ]
+    }
+  },
+  {
+    "name": "warning-body",
+    "source": "* Note\n:PROPERTIES:\n:scope: global\n:refs: repo/path#entry\n:END:\nA short body.\nline\nline\nline\nline\nline\nline\n",
+    "status": 0,
+    "parsed": {
+      "line": 1,
+      "properties": {
+        "scope": "global",
+        "refs": "repo/path#entry"
+      },
+      "property_lines": {
+        "scope": 3,
+        "refs": 4
+      },
+      "property_order": ["scope", "refs"],
+      "nonempty_content": [
+        {
+          "line": 6,
+          "text": "A short body."
+        },
+        {
+          "line": 7,
+          "text": "line"
+        },
+        {
+          "line": 8,
+          "text": "line"
+        },
+        {
+          "line": 9,
+          "text": "line"
+        },
+        {
+          "line": 10,
+          "text": "line"
+        },
+        {
+          "line": 11,
+          "text": "line"
+        },
+        {
+          "line": 12,
+          "text": "line"
+        }
+      ]
+    },
+    "report": {
+      "mode": null,
+      "diagnostics": [
+        {
+          "rule_id": "entry.body.advisory",
+          "severity": "warning",
+          "line": 1,
+          "message": "Prefer six lines"
+        }
+      ]
+    }
+  }
+]

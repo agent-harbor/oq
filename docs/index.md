@@ -1,9 +1,10 @@
 # oq documentation
 
-`oq` is being developed as a general-purpose tool for Org-mode documents. Its
-intended interfaces are a command-line application, a reusable Rust library, and
-WebAssembly bindings for JavaScript and TypeScript consumers.
+`oq` queries, edits, and validates Org-mode documents through one Rust engine.
+Use the command-line application, the reusable `oq-core` crate, or the compiled
+WebAssembly package for JavaScript and TypeScript.
 
-The initial implementation will support queries, lossless document edits, and
-validation against declarative TOML schemas. Consumers own their domain-specific
-schemas.
+See the [contract](contract.md) for the parsed document model, query examples,
+lossless mutation boundaries, and declarative schemas. Consumers own their
+domain-specific schemas. See the [README](../README.md) for installation and the
+[contributor guide](contributors/README.md) for reproducible builds and tests.

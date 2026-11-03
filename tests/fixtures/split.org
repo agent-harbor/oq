@@ -1,0 +1,13 @@
+#+TITLE: A1: First
+* Detail
+:PROPERTIES:
+:item_id: A1
+:root: [[file:index.org]]
+:END:
+** A1: First
+:PROPERTIES:
+:state: active
+:END:
+*** Checks
+- test_name: first_check
+  status: pending

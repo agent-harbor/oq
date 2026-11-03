@@ -1,0 +1,91 @@
+# oq
+> Query, edit and validate Org documents through one Rust engine.
+
+Install: `cargo install --git https://github.com/agent-harbor/oq --branch dev --locked oq`
+Nix: `nix run github:agent-harbor/oq/dev -- --help`
+
+```text
+  oq query <jq-expression> <file.org>
+  oq <jq-expression> <file.org>
+  oq set [-i|--in-place] <jq-transformation> <file.org>
+  oq validate --schema <schema.toml> <file.org>
+  oq --help | oq -h
+  oq --version
+```
+
+query emits JSON values, one per line; empty, false and null still exit 0.
+set defaults to Org on stdout without changing input; -i/--in-place writes silently.
+validate needs explicit --schema and emits JSON diagnostics. No oq runtime env vars
+or config/schema autodiscovery. Exit 0=success/warnings, 1=document errors, 2=other errors.
+
+## Runnable validation
+Run these blocks in order in an empty directory with `oq` on `PATH`.
+
+<!-- oq:case:valid -->
+
+```sh
+cat > note.org <<'ORG'
+* Note
+:PROPERTIES:
+:state: ready
+:END:
+ORG
+cat > strict.toml <<'TOML'
+version = 1
+[[rules]]
+id = "note.state"
+select = ".children[]"
+assert = '.properties.state == "ready"'
+message = "State must be ready"
+line = ".property_lines.state // .line"
+min_matches = 1
+TOML
+oq validate --schema strict.toml note.org
+```
+
+Exit 0: JSON report with no diagnostics. The rule requires a note in state `ready`.
+
+<!-- oq:case:rejected -->
+
+```sh
+oq set -i '.children[0].properties.state = "blocked"' note.org
+oq validate --schema strict.toml note.org
+```
+
+Exit 1: JSON error `note.state` at line 3. The in-place edit itself is silent.
+
+<!-- oq:case:warning -->
+
+```sh
+cp strict.toml warning.toml
+printf '\nseverity = "warning"\n' >> warning.toml
+oq validate --schema warning.toml note.org
+```
+
+Exit 0: the same violation is a warning diagnostic, not an error.
+
+<!-- oq:case:malformed -->
+
+```sh
+printf 'version = [\n' > broken.toml
+oq validate --schema broken.toml note.org
+```
+
+Exit 2: malformed schema; error text on stderr.
+
+<!-- oq:case:usage -->
+
+```sh
+oq validate note.org
+```
+
+Exit 2: `--schema` is required even if a schema file exists nearby.
+
+## Documentation
+- [README](README.md): install/start.
+- [Guide](docs/index.md): index.
+- [Contract](docs/contract.md): model, schema and API.
+- [Validation](docs/fragments/validation-example.md): executable examples.
+- [Build](docs/contributors/README.md): contributor setup.
+- [Agents](AGENTS.md): work commands.
+- [Full](llms-full.txt): complete reference.

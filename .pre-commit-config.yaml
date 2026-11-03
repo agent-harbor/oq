@@ -1,0 +1,56 @@
+# mcl-standard-hooks portable set, pinned to the same public source as flake.lock:
+# https://github.com/metacraft-labs/devops-modules/blob/11c4b60a232643711839980f01ad419cd6061214/git-hooks/mcl-standard-hooks.yaml
+minimum_pre_commit_version: "3.0.0"
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: end-of-file-fixer
+
+  - repo: https://github.com/metacraft-labs/devops-modules
+    rev: 11c4b60a232643711839980f01ad419cd6061214
+    hooks:
+      - id: ban-added-ct-recordings
+
+  - repo: local
+    hooks:
+      - id: editorconfig-checker
+        name: editorconfig-checker
+        entry: editorconfig-checker
+        language: system
+        types: [file]
+
+      - id: nixfmt
+        name: nixfmt
+        entry: nixfmt
+        language: system
+        files: \.nix$
+
+      - id: terraform-format
+        name: terraform-format
+        description: Format Terraform/OpenTofu HCL files
+        entry: tofu fmt
+        language: system
+        types: [file]
+        files: \.(tf|tftest\.hcl)$
+
+      - id: prettier
+        name: prettier
+        entry: prettier --check --list-different=false --log-level=warn --ignore-unknown --write
+        language: system
+        types: [text]
+      - id: lint
+        name: Project lint
+        entry: just lint
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: check-license
+        name: Check license file
+        entry: bash -c 'test -s LICENSE'
+        language: system
+        pass_filenames: false
+        always_run: true

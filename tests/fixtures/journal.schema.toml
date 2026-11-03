@@ -1,0 +1,38 @@
+version = 1
+[[rules]]
+id = "entry.count"
+assert = '.children | length == 1'
+message = "Expected one entry"
+line = "1"
+[[rules]]
+id = "entry.scope"
+select = '.children[]'
+assert = '.properties.scope | IN("global", "project", "repository")'
+message = "Invalid scope"
+line = '.property_lines.scope // .line'
+[[rules]]
+id = "entry.refs"
+select = '.children[]'
+assert = '(.properties.refs // "") | test("^\\S+(,\\s*\\S+)*$")'
+message = "Missing references"
+[[rules]]
+id = "entry.project"
+select = '.children[] | select(.properties.scope == "project")'
+assert = '(.properties.project // "") | length > 0'
+message = "Project scope requires project"
+[[rules]]
+id = "entry.repository"
+select = '.children[] | select(.properties.scope == "repository")'
+assert = '(.properties.repositories // "") | length > 0'
+message = "Repository scope requires repositories"
+[[rules]]
+id = "entry.body"
+select = '.children[]'
+assert = '[.content[] | select(.text | test("\\S"))] | length <= 12'
+message = "Body exceeds twelve lines"
+[[rules]]
+id = "entry.body.advisory"
+select = '.children[]'
+assert = '[.content[] | select(.text | test("\\S"))] | length <= 6'
+message = "Prefer six lines"
+severity = "warning"

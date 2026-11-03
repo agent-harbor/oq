@@ -1,0 +1,55 @@
+version = 1
+
+[[modes]]
+name = "split"
+when = '.sections | has("Detail")'
+[[modes]]
+name = "wiki"
+when = '.sections | has("Index")'
+[[modes]]
+name = "refinement"
+when = '.sections | has("Revisions")'
+[[modes]]
+name = "inline"
+when = 'true'
+
+[[rules]]
+id = "title.required"
+assert = '.title != null'
+message = "Missing #+TITLE"
+line = "1"
+
+[[rules]]
+id = "title.suffix"
+assert = '(.title // "") | endswith("Roadmap")'
+message = "Title should end with Roadmap"
+line = '.title_line'
+severity = "warning"
+modes = ["inline", "wiki", "refinement"]
+
+[[rules]]
+id = "work.required"
+assert = '.sections | has("Work")'
+message = "Missing required section: * Work"
+modes = ["inline"]
+
+[[rules]]
+id = "work.state"
+select = '.sections.Work.children[]?'
+assert = '.properties.state | IN("planned", "active", "done")'
+message = "Invalid state"
+message_query = '"Invalid state for \(.title)"'
+line = '.property_lines.state // .line'
+modes = ["inline"]
+
+[[rules]]
+id = "sections.allowed"
+assert = 'all(.children[]; .title | IN("Work", "Index", "Detail", "Revisions"))'
+message = "Unexpected section"
+
+[[rules]]
+id = "drawer.closed"
+select = '.children[] | recurse(.children[]?) | select(has("drawer_closed"))'
+assert = '.drawer_closed and (.drawer_stray_lines | length == 0)'
+message = "Malformed property drawer"
+line = '.drawer_line // .line'
