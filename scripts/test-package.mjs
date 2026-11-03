@@ -51,6 +51,14 @@ try {
     const oq = await createOq(readFileSync(new URL(import.meta.resolve('@agent-harbor/oq/oq.wasm'))));
     assert.deepEqual(oq.query('* Consumer 雪\\n', '.children[].title'), ['Consumer 雪']);
     assert.equal(oq.set('* A\\n', '.children[0].title="B"'), '* B\\n');
+    const source = '* =Title=\\nBody /text/.\\n- [x] Read [[file:guide.org]]\\n| | value ||\\n';
+    const section = oq.parse(source).children[0];
+    assert.equal(section.title_plain, 'Title');
+    assert.equal(section.items[0].checkbox, 'X');
+    assert.equal(section.items[0].text_plain, 'Read file:guide.org');
+    assert.deepEqual(section.paragraphs, [{ text: 'Body /text/.\\n', plain: 'Body text.\\n', line: 2, start: 10, end: 23 }]);
+    assert.deepEqual(section.tables[0][0].cells, ['', 'value', '']);
+    assert.equal(oq.set(source, '.'), source);
   `,
     ],
     consumer,

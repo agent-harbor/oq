@@ -1,0 +1,112 @@
+[
+  {
+    "name": "owned prose and inline rendering",
+    "source": "Intro *雪*.\r\n  Continued =code=.\r\n\r\n* Deploy =tool= with *care* and [[file:a][the /guide/]]\r\n:PROPERTIES:\r\n:raw: =keep= [[file:b]]\r\n:END:\r\n  Body /one/.\r\n    Next ~two~.\r\n\r\n#+begin_example\r\n,* literal *heading*\r\n- [x] literal checkbox\r\n#+end_example\r\n#+begin_src text\r\n,* literal source\r\n#+end_src\r\n:LOGBOOK:\r\nhidden *drawer*\r\n:END:\r\n| A | |\r\n- [x] First *bold /nested/*, ~code~ and =verbatim=, _under_ +strike+.\r\n  continuation [[file:other.org]] and [[https://example.org][the *label*]].\r\n\r\n  Second /paragraph/.\r\n  - [X] Child =only=.\r\n- term :: Definition *only*.\r\n- test_name: keep [[server]] =raw= ~raw~ `raw`\r\n  description: label [[file:a][*raw label*]]\r\n** Child\r\nChild *body*.\r\n* Unmatched *open\r\nNo =close and [[broken.\r\n",
+    "titles": ["Deploy tool with care and the guide", "Unmatched *open"],
+    "items": [
+      "First bold nested, code and verbatim, under strike.\r\n  continuation file:other.org and the label.\n\n  Second paragraph.",
+      "Child only.",
+      "Definition only.",
+      "test_name: keep server raw raw `raw`\r\n  description: label raw label"
+    ],
+    "preamble": [
+      {
+        "text": "Intro *雪*.\r\n  Continued =code=.\r\n",
+        "plain": "Intro 雪.\r\n  Continued code.\r\n",
+        "line": 1,
+        "start": 0,
+        "end": 35
+      }
+    ],
+    "body": [
+      {
+        "text": "  Body /one/.\r\n    Next ~two~.\r\n",
+        "plain": "  Body one.\r\n    Next two.\r\n",
+        "line": 8,
+        "start": 140,
+        "end": 172
+      }
+    ],
+    "child": [
+      {
+        "text": "Child *body*.\r\n",
+        "plain": "Child body.\r\n",
+        "line": 31,
+        "start": 674,
+        "end": 689
+      }
+    ],
+    "last": [
+      {
+        "text": "No =close and [[broken.\r\n",
+        "plain": "No =close and [[broken.\r\n",
+        "line": 33,
+        "start": 708,
+        "end": 733
+      }
+    ]
+  },
+  {
+    "name": "paragraph boundaries and affiliated metadata",
+    "source": "#+CAPTION: hidden *metadata*\nFirst *open\n\nSecond close*.\n\n* End\n",
+    "titles": ["End"],
+    "items": [],
+    "preamble": [
+      {
+        "text": "First *open\n",
+        "plain": "First *open\n",
+        "line": 2,
+        "start": 29,
+        "end": 41
+      },
+      {
+        "text": "Second close*.\n",
+        "plain": "Second close*.\n",
+        "line": 4,
+        "start": 42,
+        "end": 57
+      }
+    ],
+    "body": [],
+    "child": null,
+    "last": []
+  },
+  {
+    "name": "code and verbatim contents remain literal",
+    "source": "* =*raw*= and ~[[file:a]]~\nKeep =*raw*= and ~[[file:a]]~.\n",
+    "titles": ["*raw* and [[file:a]]"],
+    "items": [],
+    "preamble": [],
+    "body": [
+      {
+        "text": "Keep =*raw*= and ~[[file:a]]~.\n",
+        "plain": "Keep *raw* and [[file:a]].\n",
+        "line": 2,
+        "start": 27,
+        "end": 58
+      }
+    ],
+    "child": null,
+    "last": [
+      {
+        "text": "Keep =*raw*= and ~[[file:a]]~.\n",
+        "plain": "Keep *raw* and [[file:a]].\n",
+        "line": 2,
+        "start": 27,
+        "end": 58
+      }
+    ]
+  },
+  {
+    "name": "item paragraphs preserve later indentation and interior spaces",
+    "source": "* Work\n- First *line*  \n  continuation  \n\n    Later /paragraph/  \n    end. \n",
+    "titles": ["Work"],
+    "items": [
+      "First line  \n  continuation  \n\n    Later paragraph  \n    end."
+    ],
+    "preamble": [],
+    "body": [],
+    "child": null,
+    "last": []
+  }
+]

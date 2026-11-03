@@ -1,9 +1,7 @@
 use crate::Error;
-use orgize::ast::{
-    Headline, Keyword, ListItem, OrgTable, OrgTableCell, OrgTableRow, Paragraph, Section,
-};
+use orgize::ast::{Headline, Keyword, Link, ListItem, OrgTable, OrgTableRow, Paragraph, Section};
 use orgize::rowan::ast::AstNode;
-use orgize::{Org, SyntaxKind, SyntaxNode};
+use orgize::{Org, SyntaxElement, SyntaxKind, SyntaxNode};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
@@ -309,6 +307,7 @@ impl Builder<'_> {
             .syntax()
             .children()
             .find(|n| n.kind() == SyntaxKind::HEADLINE_TITLE);
+        value["title_plain"] = json!(title_node.as_ref().map(plain).unwrap_or_default().trim());
         if let Some(n) = title_node {
             let span = self.trimmed(offset(n.text_range().start())..offset(n.text_range().end()));
             self.slot(&format!("{path}/title"), span, Kind::Text);
@@ -335,8 +334,31 @@ impl Builder<'_> {
 
     fn body(&mut self, section: Option<Section>, path: &str, skip: Option<Range<usize>>) -> Value {
         let Some(section) = section else {
-            return json!({"content":[],"items":[],"tables":[]});
+            return json!({"content":[],"items":[],"tables":[],"paragraphs":[]});
         };
+        // Direct children establish ownership: nested lists, drawers, blocks,
+        // and descendant headings cannot leak prose into the body's projection.
+        let paragraphs = section
+            .syntax()
+            .children()
+            .filter_map(Paragraph::cast)
+            .filter_map(|p| {
+                let range = paragraph_range(&p)?;
+                if skip
+                    .as_ref()
+                    .is_some_and(|r| r.start < range.end && range.start < r.end)
+                {
+                    return None;
+                }
+                Some(json!({
+                    "text": &self.source[range.clone()],
+                    "plain": plain_range(p.syntax(), &range),
+                    "line": self.line(range.start),
+                    "start": range.start,
+                    "end": range.end,
+                }))
+            })
+            .collect::<Vec<_>>();
         let mut content = Vec::new();
         let mut at = offset(section.start());
         for raw in self.source[offset(section.start())..offset(section.end())].split_inclusive('\n')
@@ -370,13 +392,24 @@ impl Builder<'_> {
             {
                 let row_index = rows.len();
                 let mut cells = Vec::new();
-                for (column, cell) in row
+                // orgize omits empty cell nodes, but retains every concrete pipe.
+                // Delimiter gaps preserve column count and zero-length edit slots.
+                let pipes = row
                     .syntax()
-                    .children()
-                    .filter_map(OrgTableCell::cast)
-                    .enumerate()
-                {
-                    let span = self.trimmed(offset(cell.start())..offset(cell.end()));
+                    .children_with_tokens()
+                    .filter(|e| e.kind() == SyntaxKind::PIPE)
+                    .map(|e| offset(e.text_range().start()))
+                    .collect::<Vec<_>>();
+                let end = self.line_end(offset(row.start()));
+                for (column, &pipe) in pipes.iter().enumerate() {
+                    let next = pipes.get(column + 1).copied().unwrap_or(end);
+                    if column > 0
+                        && column + 1 == pipes.len()
+                        && self.source[pipe + 1..end].trim().is_empty()
+                    {
+                        break;
+                    }
+                    let span = self.trimmed(pipe + 1..next);
                     cells.push(json!(&self.source[span.clone()]));
                     self.slot(
                         &format!("{path}/tables/{i}/{row_index}/cells/{column}"),
@@ -388,7 +421,7 @@ impl Builder<'_> {
             }
             tables.push(json!(rows));
         }
-        json!({"content":content,"items":items,"tables":tables})
+        json!({"content":content,"items":items,"tables":tables,"paragraphs":paragraphs})
     }
 
     fn item(&mut self, item: ListItem, path: &str) -> Value {
@@ -400,28 +433,81 @@ impl Builder<'_> {
             .filter_map(Paragraph::cast)
             .filter(|p| nearest_item(p.syntax()).as_ref() == Some(item.syntax()))
             .collect::<Vec<_>>();
+        // orgize recognizes the normalized states itself. Support lowercase
+        // completed input only at its concrete item-prefix boundary, after the
+        // bullet and optional counter, without rewriting any source bytes.
+        let lower = item
+            .checkbox()
+            .is_none()
+            .then(|| {
+                item.syntax()
+                    .children()
+                    .find(|n| {
+                        matches!(
+                            n.kind(),
+                            SyntaxKind::LIST_ITEM_TAG | SyntaxKind::LIST_ITEM_CONTENT
+                        )
+                    })
+                    .map(|n| offset(n.text_range().start()))
+                    .filter(|&at| at <= end && self.source[at..end].starts_with("[x]"))
+            })
+            .flatten();
+        let content_start = lower.map(|at| {
+            let after = at + 3;
+            after + self.source[after..end].len() - self.source[after..end].trim_start().len()
+        });
         let text_start = paragraphs
             .first()
-            .map_or(end, |p| offset(p.start()).min(end));
+            .map_or(end, |p| offset(p.start()).min(end))
+            .max(content_start.unwrap_or(0));
         let span = self.trimmed(text_start..end);
         let text = self.source[span.clone()].to_string();
         self.slot(&format!("{path}/text"), span, Kind::Text);
-        let checkbox = item.checkbox().map(|t| {
-            self.slot(
-                &format!("{path}/checkbox"),
-                offset(t.text_range().start())..offset(t.text_range().end()),
-                Kind::Checkbox,
-            );
-            t.to_string()
-        });
+        let checkbox = item
+            .checkbox()
+            .map(|t| {
+                self.slot(
+                    &format!("{path}/checkbox"),
+                    offset(t.text_range().start())..offset(t.text_range().end()),
+                    Kind::Checkbox,
+                );
+                t.to_string()
+            })
+            .or_else(|| {
+                lower.map(|at| {
+                    self.slot(&format!("{path}/checkbox"), at + 1..at + 2, Kind::Checkbox);
+                    "X".into()
+                })
+            });
+        let text_plain = paragraphs
+            .iter()
+            .filter_map(|p| {
+                let mut range = paragraph_range(p)?;
+                range.start = range.start.max(content_start.unwrap_or(0));
+                let rendered = plain_range(p.syntax(), &range);
+                // The join supplies the paragraph boundary. Retain all other
+                // whitespace, including indentation of later paragraphs.
+                Some(
+                    rendered
+                        .strip_suffix("\r\n")
+                        .or_else(|| rendered.strip_suffix('\n'))
+                        .or_else(|| rendered.strip_suffix('\r'))
+                        .unwrap_or(&rendered)
+                        .to_string(),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+            .trim()
+            .to_string();
         let mut fields = Map::new();
         let mut lines = Map::new();
         let mut spans: BTreeMap<String, Range<usize>> = BTreeMap::new();
         let mut previous: Option<String> = None;
         let field_indent = text_start.saturating_sub(self.starts[self.line(text_start) - 1]);
         for paragraph in paragraphs {
-            let mut at = offset(paragraph.start());
-            for raw in paragraph.raw().split_inclusive('\n') {
+            let mut at = offset(paragraph.start()).max(content_start.unwrap_or(0));
+            for raw in self.source[at..offset(paragraph.end())].split_inclusive('\n') {
                 let trimmed = raw.trim();
                 let indent =
                     at - self.starts[self.line(at) - 1] + raw.len() - raw.trim_start().len();
@@ -467,7 +553,11 @@ impl Builder<'_> {
         }
         let tag = item
             .tag()
-            .map(|n| n.to_string())
+            .map(|n| {
+                let range = n.text_range();
+                let start = offset(range.start()).max(content_start.unwrap_or(0));
+                self.source[start.min(offset(range.end()))..offset(range.end())].to_owned()
+            })
             .collect::<String>()
             .trim()
             .to_string();
@@ -480,7 +570,76 @@ impl Builder<'_> {
                 Kind::Text,
             );
         }
-        json!({"line":self.line(start),"indent":item.indent(),"text":text,"checkbox":checkbox,"fields":fields,"field_lines":lines})
+        json!({"line":self.line(start),"indent":item.indent(),"text":text,"text_plain":text_plain,"checkbox":checkbox,"fields":fields,"field_lines":lines})
+    }
+}
+
+// Paragraph CST nodes also contain affiliated keywords and post-blank tokens;
+// neither belongs to the original prose span or its inline display projection.
+fn paragraph_range(p: &Paragraph) -> Option<Range<usize>> {
+    let mut elements = p.syntax().children_with_tokens().filter(|e| {
+        !matches!(
+            e.kind(),
+            SyntaxKind::BLANK_LINE | SyntaxKind::AFFILIATED_KEYWORD
+        )
+    });
+    let first = elements.next()?;
+    let end = elements
+        .last()
+        .map_or(first.text_range().end(), |e| e.text_range().end());
+    Some(offset(first.text_range().start())..offset(end))
+}
+
+fn plain(node: &SyntaxNode) -> String {
+    plain_range(
+        node,
+        &(offset(node.text_range().start())..offset(node.text_range().end())),
+    )
+}
+
+fn plain_range(node: &SyntaxNode, range: &Range<usize>) -> String {
+    node.children_with_tokens()
+        .map(|e| plain_element(e, range))
+        .collect()
+}
+
+fn plain_element(element: SyntaxElement, range: &Range<usize>) -> String {
+    let bounds = element.text_range();
+    let start = offset(bounds.start()).max(range.start);
+    let end = offset(bounds.end()).min(range.end);
+    if start >= end {
+        return String::new();
+    }
+    let Some(node) = element.as_node() else {
+        return element.to_string()[start - offset(bounds.start())..end - offset(bounds.start())]
+            .into();
+    };
+    match node.kind() {
+        SyntaxKind::LINK => {
+            let link = Link::cast(node.clone()).expect("LINK node");
+            if link.has_description() {
+                link.description()
+                    .map(|e| plain_element(e, range))
+                    .collect()
+            } else {
+                link.path().to_string()
+            }
+        }
+        SyntaxKind::BOLD
+        | SyntaxKind::ITALIC
+        | SyntaxKind::UNDERLINE
+        | SyntaxKind::STRIKE
+        | SyntaxKind::CODE
+        | SyntaxKind::VERBATIM => {
+            let mut children = node.children_with_tokens().collect::<Vec<_>>();
+            children.pop();
+            children
+                .into_iter()
+                .skip(1)
+                .map(|e| plain_element(e, range))
+                .collect()
+        }
+        _ => plain_range(node, range),
     }
 }
 

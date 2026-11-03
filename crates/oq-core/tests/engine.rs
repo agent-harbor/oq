@@ -6,6 +6,222 @@ const SCHEMA: &str = include_str!("../../../tests/fixtures/shapes.schema.toml");
 const JOURNAL: &str = include_str!("../../../tests/fixtures/journal.schema.toml");
 
 #[test]
+fn core_display_projections_preserve_raw_values_and_owned_source_spans() {
+    let cases: Vec<Value> =
+        serde_json::from_str(include_str!("../../../tests/fixtures/display-cases.json")).unwrap();
+    for case in cases {
+        let source = case["source"].as_str().unwrap();
+        let d = parse(source).unwrap().value;
+        assert_eq!(
+            query(source, "[.children[].title_plain]").unwrap(),
+            vec![case["titles"].clone()],
+            "{}",
+            case["name"]
+        );
+        assert_eq!(
+            query(source, "[.children[0].items[].text_plain]").unwrap(),
+            vec![case["items"].clone()]
+        );
+        assert_eq!(d["paragraphs"], case["preamble"]);
+        assert_eq!(d["children"][0]["paragraphs"], case["body"]);
+        assert_eq!(d["children"][0]["children"][0]["paragraphs"], case["child"]);
+        assert_eq!(
+            d["children"].as_array().unwrap().last().unwrap()["paragraphs"],
+            case["last"]
+        );
+        for p in [&d["paragraphs"], &d["children"][0]["paragraphs"]]
+            .into_iter()
+            .flat_map(|p| p.as_array().unwrap())
+        {
+            assert_eq!(
+                &source[p["start"].as_u64().unwrap() as usize..p["end"].as_u64().unwrap() as usize],
+                p["text"].as_str().unwrap()
+            );
+        }
+        assert_eq!(set(source, ".").unwrap(), source);
+    }
+    let source = cases_source();
+    let d = parse(&source).unwrap().value;
+    let h = &d["children"][0];
+    assert_eq!(
+        h["title"],
+        "Deploy =tool= with *care* and [[file:a][the /guide/]]"
+    );
+    assert_eq!(h["properties"]["raw"], "=keep= [[file:b]]");
+    assert_eq!(
+        h["items"][0]["text"],
+        "First *bold /nested/*, ~code~ and =verbatim=, _under_ +strike+."
+    );
+    assert_eq!(
+        h["items"][3]["fields"],
+        json!({"test_name":"keep [[server]] =raw= ~raw~ `raw`", "description":"label [[file:a][*raw label*]]"})
+    );
+    assert_eq!(
+        h["items"][3]["field_lines"],
+        json!({"test_name":28,"description":29})
+    );
+    assert_eq!(
+        parse("  =雪=").unwrap().value["paragraphs"],
+        json!([
+            {"text":"  =雪=", "plain":"  雪", "line":1, "start":0, "end":7}
+        ])
+    );
+    for expression in [
+        r#".children[0].title_plain = "changed""#,
+        r#".children[0].items[0].text_plain = "changed""#,
+        r#".paragraphs[0].plain = "changed""#,
+        r#".children[0].paragraphs = []"#,
+    ] {
+        assert!(
+            set(&source, expression)
+                .unwrap_err()
+                .to_string()
+                .contains("read-only"),
+            "{expression}"
+        );
+    }
+    let edited = set(&source, r#".children[0].title="New *title*" | .children[0].items[0].text="New /item/" | .children[0].items[3].fields.description="New =field=""#).unwrap();
+    assert_eq!(
+        edited,
+        source
+            .replacen(
+                "Deploy =tool= with *care* and [[file:a][the /guide/]]",
+                "New *title*",
+                1
+            )
+            .replacen(
+                "First *bold /nested/*, ~code~ and =verbatim=, _under_ +strike+.",
+                "New /item/",
+                1
+            )
+            .replacen("label [[file:a][*raw label*]]", "New =field=", 1)
+    );
+    let reparsed = parse(&edited).unwrap().value;
+    assert_eq!(reparsed["children"][0]["title_plain"], "New title");
+    assert!(
+        reparsed["children"][0]["items"][0]["text_plain"]
+            .as_str()
+            .unwrap()
+            .starts_with("New item\r\n  continuation")
+    );
+    assert_eq!(
+        reparsed["children"][0]["items"][3]["fields"]["description"],
+        "New =field="
+    );
+}
+
+fn cases_source() -> String {
+    let cases: Value =
+        serde_json::from_str(include_str!("../../../tests/fixtures/display-cases.json")).unwrap();
+    cases[0]["source"].as_str().unwrap().into()
+}
+
+#[test]
+fn core_checkbox_case_compatibility_keeps_original_bytes_and_normalized_edits() {
+    let source = "* Work\r\n    - [x] Lower 雪\r\n      - [X] Nested\r\n    - [ ] Open\r\n    - [-] Partial\r\n    - [y] Ordinary\r\n    - [x] term :: Definition\r\n    1. [@2] [x] Ordered\r\n";
+    assert_eq!(
+        query(
+            source,
+            "[.children[0].items[] | [.text, .checkbox, .text_plain]]"
+        )
+        .unwrap(),
+        vec![json!([
+            ["Lower 雪", "X", "Lower 雪"],
+            ["Nested", "X", "Nested"],
+            ["Open", " ", "Open"],
+            ["Partial", "-", "Partial"],
+            ["[y] Ordinary", null, "[y] Ordinary"],
+            ["Definition", "X", "Definition"],
+            ["Ordered", "X", "Ordered"]
+        ])]
+    );
+    assert_eq!(
+        query(source, ".children[0].items[5].fields").unwrap(),
+        vec![json!({"term":"Definition"})]
+    );
+    let nested_lower = source.replace("[X] Nested", "[x] Nested");
+    assert_eq!(
+        parse(&nested_lower).unwrap().value["children"][0]["items"],
+        parse(source).unwrap().value["children"][0]["items"]
+    );
+    assert_eq!(
+        parse(&nested_lower).unwrap().value["children"][0]["content"][1]["text"],
+        "      - [x] Nested"
+    );
+    assert_eq!(set(&nested_lower, ".").unwrap(), nested_lower);
+    assert_eq!(set(source, ".").unwrap(), source);
+    assert_eq!(
+        set(source, r#".children[0].items[0].checkbox="X""#).unwrap(),
+        source
+    );
+    assert_eq!(
+        set(source, r#".children[0].title="Renamed""#).unwrap(),
+        source.replacen("* Work", "* Renamed", 1)
+    );
+    for (index, old) in [(0, "[x] Lower"), (1, "[X] Nested"), (6, "[x] Ordered")] {
+        let expression = format!(r#".children[0].items[{index}].checkbox=" ""#);
+        let unchecked = set(source, &expression).unwrap();
+        assert_eq!(
+            unchecked,
+            source.replacen(old, &old.replacen(['x', 'X'], " ", 1), 1)
+        );
+        let checked = set(
+            &unchecked,
+            &format!(r#".children[0].items[{index}].checkbox="X""#),
+        )
+        .unwrap();
+        assert_eq!(checked, source.replacen(old, &old.replacen('x', "X", 1), 1));
+    }
+    assert!(
+        set(source, r#".children[0].items[0].checkbox="x""#)
+            .unwrap_err()
+            .to_string()
+            .contains("checkbox must be a space, X, or -")
+    );
+    assert_eq!(
+        parse("- \n").unwrap().value["items"][0]["checkbox"],
+        Value::Null
+    );
+}
+
+#[test]
+fn core_empty_table_cells_keep_cardinality_and_lossless_mutation_slots() {
+    let source = "* Table 雪\r\n| | a || \t |z||\r\n|---+---|\r\n| a | b\r\n|   |\r\n|";
+    assert_eq!(
+        query(source, ".children[0].tables").unwrap(),
+        vec![json!([[
+            {"line":2,"cells":["","a","","","z",""]}, {"line":4,"cells":["a","b"]}, {"line":5,"cells":[""]}, {"line":6,"cells":[""]}
+        ]])]
+    );
+    let row = "| | a || \t |z||";
+    for (column, expected) in [
+        "| new| a || \t |z||",
+        "| | new || \t |z||",
+        "| | a |new| \t |z||",
+        "| | a || \t new|z||",
+        "| | a || \t |new||",
+        "| | a || \t |z|new|",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let result = set(
+            source,
+            &format!(r#".children[0].tables[0][0].cells[{column}]="new""#),
+        )
+        .unwrap();
+        assert_eq!(result, source.replacen(row, expected, 1));
+        assert_eq!(
+            parse(&result).unwrap().value["children"][0]["tables"][0][0]["cells"][column],
+            "new"
+        );
+    }
+    assert_eq!(set(source, r#".children[0].tables[0][1].cells[1]="雪" | .children[0].tables[0][2].cells[0]="new" | .children[0].tables[0][3].cells[0]="end""#).unwrap(), source.replace("| a | b\r\n|   |\r\n|", "| a | 雪\r\n|   new|\r\n|end"));
+    assert_eq!(set(source, ".").unwrap(), source);
+    assert!(set(source, r#".children[0].tables[0][0].cells[0]="bad|cell""#).is_err());
+}
+
+#[test]
 fn core_rich_tree_locations_code_blocks_and_duplicate_titles() {
     let d = parse(RICH).unwrap().value;
     assert_eq!(d["title"], "Unicode café Roadmap");

@@ -5,6 +5,7 @@ export interface SourceLine {
 }
 export interface ListItem {
   text: string;
+  readonly text_plain: string;
   checkbox: " " | "X" | "-" | null;
   line: number;
   indent: number;
@@ -15,13 +16,22 @@ export interface TableRow {
   cells: string[];
   line: number;
 }
+export interface Paragraph {
+  readonly text: string;
+  readonly plain: string;
+  readonly line: number;
+  readonly start: number;
+  readonly end: number;
+}
 export interface Body {
+  readonly paragraphs: readonly Paragraph[];
   content: SourceLine[];
   items: ListItem[];
   tables: TableRow[][];
 }
 export interface Section extends Body {
   title: string;
+  readonly title_plain: string;
   level: number;
   line: number;
   start: number;

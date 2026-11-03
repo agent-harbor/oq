@@ -62,6 +62,253 @@ function runCli(args) {
   return result;
 }
 
+test("display projections pin literal values, ownership, spans, and canonical edits", async (t) => {
+  const oq = await createOq(module);
+  const temporary = mkdtempSync(join(tmpdir(), "oq-display-"));
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  const path = join(temporary, "input.org");
+  const cases = JSON.parse(fixture("display-cases.json"));
+  for (const item of cases) {
+    writeFileSync(path, item.source);
+    const parsed = oq.parse(item.source);
+    assert.deepEqual(parsed, native(["query", ".", path])[0]);
+    assert.deepEqual(
+      parsed.children.map((h) => h.title_plain),
+      item.titles,
+    );
+    assert.deepEqual(
+      parsed.children[0].items.map((i) => i.text_plain),
+      item.items,
+    );
+    assert.deepEqual(parsed.paragraphs, item.preamble);
+    assert.deepEqual(parsed.children[0].paragraphs, item.body);
+    assert.deepEqual(
+      parsed.children[0].children[0]?.paragraphs ?? null,
+      item.child,
+    );
+    assert.deepEqual(parsed.children.at(-1).paragraphs, item.last);
+    for (const p of [...parsed.paragraphs, ...parsed.children[0].paragraphs]) {
+      assert.equal(
+        Buffer.from(item.source).subarray(p.start, p.end).toString(),
+        p.text,
+      );
+    }
+    assert.equal(oq.set(item.source, "."), item.source);
+    assert.equal(runCli(["set", ".", path]).stdout, item.source);
+  }
+  const source = cases[0].source;
+  const noFinalNewline = "  =雪=";
+  writeFileSync(path, noFinalNewline);
+  assert.deepEqual(oq.parse(noFinalNewline).paragraphs, [
+    { text: "  =雪=", plain: "  雪", line: 1, start: 0, end: 7 },
+  ]);
+  assert.deepEqual(oq.parse(noFinalNewline), native(["query", ".", path])[0]);
+  writeFileSync(path, source);
+  const h = oq.parse(source).children[0];
+  assert.equal(
+    h.title,
+    "Deploy =tool= with *care* and [[file:a][the /guide/]]",
+  );
+  assert.equal(h.properties.raw, "=keep= [[file:b]]");
+  assert.equal(
+    h.items[0].text,
+    "First *bold /nested/*, ~code~ and =verbatim=, _under_ +strike+.",
+  );
+  assert.deepEqual(h.items[3].fields, {
+    test_name: "keep [[server]] =raw= ~raw~ `raw`",
+    description: "label [[file:a][*raw label*]]",
+  });
+  assert.deepEqual(h.items[3].field_lines, { test_name: 28, description: 29 });
+  for (const expression of [
+    '.children[0].title_plain = "changed"',
+    '.children[0].items[0].text_plain = "changed"',
+    '.paragraphs[0].plain = "changed"',
+    ".children[0].paragraphs = []",
+  ]) {
+    assert.throws(() => oq.set(source, expression), /read-only/);
+    const result = runCli(["set", "-i", expression, path]);
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /read-only/);
+    assert.equal(readFileSync(path, "utf8"), source);
+  }
+  const expression =
+    '.children[0].title="New *title*" | .children[0].items[0].text="New /item/" | .children[0].items[3].fields.description="New =field="';
+  const expected = source
+    .replace(
+      "Deploy =tool= with *care* and [[file:a][the /guide/]]",
+      "New *title*",
+    )
+    .replace(
+      "First *bold /nested/*, ~code~ and =verbatim=, _under_ +strike+.",
+      "New /item/",
+    )
+    .replace("label [[file:a][*raw label*]]", "New =field=");
+  assert.equal(oq.set(source, expression), expected);
+  const result = runCli(["set", expression, path]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, expected);
+  writeFileSync(path, expected);
+  const changed = oq.parse(expected);
+  assert.deepEqual(changed, native(["query", ".", path])[0]);
+  assert.equal(changed.children[0].title_plain, "New title");
+  assert.ok(
+    changed.children[0].items[0].text_plain.startsWith(
+      "New item\r\n  continuation",
+    ),
+  );
+  assert.equal(changed.children[0].items[3].fields.description, "New =field=");
+});
+
+test("checkbox input case and empty columns preserve source through real native/WASM edits", async (t) => {
+  const oq = await createOq(module);
+  const temporary = mkdtempSync(join(tmpdir(), "oq-cells-"));
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  const path = join(temporary, "input.org"),
+    schemaPath = join(temporary, "schema.toml");
+  const source =
+    "* Work\r\n- [x] Create *structure* 雪\r\n  - [X] Nested\r\n- [ ] Add configuration\r\n| Id | Kind | Name | State | Note | Page |\r\n|----+------+------|\r\n| A8 | Base | Core | completed | | [[file:A8.org][A8]] |\r\n| | a || \t |z||\r\n| a | b\r\n|   |\r\n|";
+  const check = `version=1
+[[rules]]
+id='complete'
+select='.children[0].items[0]'
+assert='.checkbox == "X" and .text_plain == "Create structure 雪"'
+message='Expected completed item'
+[[rules]]
+id='columns'
+select='.children[0].tables[0][1]'
+assert='.cells == ["A8", "Base", "Core", "completed", "", "[[file:A8.org][A8]]"]'
+message='Expected six columns'
+`;
+  writeFileSync(schemaPath, check);
+  for (const marker of ["x", "X"]) {
+    const input = source.replace("[x]", `[${marker}]`);
+    writeFileSync(path, input);
+    const d = oq.parse(input);
+    assert.deepEqual(d, native(["query", ".", path])[0]);
+    assert.deepEqual(
+      d.children[0].items.map((i) => [i.text, i.checkbox, i.text_plain]),
+      [
+        ["Create *structure* 雪", "X", "Create structure 雪"],
+        ["Nested", "X", "Nested"],
+        ["Add configuration", " ", "Add configuration"],
+      ],
+    );
+    assert.deepEqual(d.children[0].tables, [
+      [
+        { line: 5, cells: ["Id", "Kind", "Name", "State", "Note", "Page"] },
+        {
+          line: 7,
+          cells: ["A8", "Base", "Core", "completed", "", "[[file:A8.org][A8]]"],
+        },
+        { line: 8, cells: ["", "a", "", "", "z", ""] },
+        { line: 9, cells: ["a", "b"] },
+        { line: 10, cells: [""] },
+        { line: 11, cells: [""] },
+      ],
+    ]);
+    assert.equal(oq.set(input, "."), input);
+    assert.equal(oq.set(input, '.children[0].items[0].checkbox="X"'), input);
+    const expression = '.children[0].tables[0][1].cells[4]="memo"';
+    const expected = input.replace("completed | |", "completed | memo|");
+    assert.equal(oq.set(input, expression), expected);
+    const edited = runCli(["set", expression, path]);
+    assert.equal(edited.status, 0, edited.stderr);
+    assert.equal(edited.stdout, expected);
+    const unchecked = oq.set(input, '.children[0].items[0].checkbox=" "');
+    assert.equal(unchecked, input.replace(`[${marker}]`, "[ ]"));
+    assert.equal(
+      oq.set(unchecked, '.children[0].items[0].checkbox="X"'),
+      input.replace(`[${marker}]`, "[X]"),
+    );
+    assert.deepEqual(oq.validate(input, check), {
+      mode: null,
+      diagnostics: [],
+    });
+    assert.deepEqual(native(["validate", "--schema", schemaPath, path]), [
+      { mode: null, diagnostics: [] },
+    ]);
+  }
+  const row = "| | a || \t |z||";
+  for (const [column, replacement] of [
+    "| new| a || \t |z||",
+    "| | new || \t |z||",
+    "| | a |new| \t |z||",
+    "| | a || \t new|z||",
+    "| | a || \t |new||",
+    "| | a || \t |z|new|",
+  ].entries()) {
+    writeFileSync(path, source);
+    const expression = `.children[0].tables[0][2].cells[${column}]="new"`;
+    const expected = source.replace(row, replacement);
+    assert.equal(oq.set(source, expression), expected);
+    const result = runCli(["set", expression, path]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, expected);
+    writeFileSync(path, expected);
+    assert.deepEqual(oq.parse(expected), native(["query", ".", path])[0]);
+    assert.equal(
+      oq.parse(expected).children[0].tables[0][2].cells[column],
+      "new",
+    );
+  }
+  const nestedLower = source.replace("[X] Nested", "[x] Nested");
+  assert.deepEqual(
+    oq.parse(nestedLower).children[0].items,
+    oq.parse(source).children[0].items,
+  );
+  assert.equal(
+    oq.parse(nestedLower).children[0].content[1].text,
+    "  - [x] Nested",
+  );
+  assert.equal(oq.set(nestedLower, "."), nestedLower);
+  writeFileSync(path, nestedLower);
+  assert.deepEqual(oq.parse(nestedLower), native(["query", ".", path])[0]);
+  for (const [input, diagnostic] of [
+    [
+      source.replace("[x]", "[y]"),
+      {
+        rule_id: "complete",
+        severity: "error",
+        line: 2,
+        message: "Expected completed item",
+      },
+    ],
+    [
+      source.replace("completed | |", "completed |"),
+      {
+        rule_id: "columns",
+        severity: "error",
+        line: 7,
+        message: "Expected six columns",
+      },
+    ],
+  ]) {
+    writeFileSync(path, input);
+    const expected = { mode: null, diagnostics: [diagnostic] };
+    assert.deepEqual(oq.validate(input, check), expected);
+    const rejected = runCli(["validate", "--schema", schemaPath, path]);
+    assert.equal(rejected.status, 1);
+    assert.equal(rejected.stderr, "");
+    assert.deepEqual(JSON.parse(rejected.stdout), expected);
+  }
+  writeFileSync(path, source);
+  for (const expression of [
+    '.children[0].items[0].checkbox="x"',
+    '.children[0].tables[0][1].cells[4]="bad|cell"',
+  ]) {
+    assert.throws(
+      () => oq.set(source, expression),
+      /checkbox must|unescaped delimiter/,
+    );
+    const rejected = runCli(["set", "-i", expression, path]);
+    assert.equal(rejected.status, 2);
+    assert.equal(rejected.stdout, "");
+    assert.match(rejected.stderr, /checkbox must|unescaped delimiter/);
+    assert.equal(readFileSync(path, "utf8"), source);
+  }
+});
+
 test("WASM has no host imports and parses exactly the native JSON view", async () => {
   assert.deepEqual(WebAssembly.Module.imports(module), []);
   const oq = await createOq(module);

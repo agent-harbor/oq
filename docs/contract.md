@@ -13,17 +13,26 @@ top-level headings in source order; each heading has `children` recursively.
 repeat it addresses the first, while `children` retains every occurrence.
 The two views refer to the same source locations. Every heading exposes:
 
-- `title`, `level`, `line` (one-based), `start`, `end` (UTF-8 byte offsets);
+- `title`, read-only `title_plain`, `level`, `line` (one-based), `start`, `end`
+  (UTF-8 byte offsets);
 - `properties` (lowercase keys and string values), `property_lines`,
   `property_order`, and `drawer_stray_lines`;
 - `content`: direct body lines with `text` and `line`, excluding the property
   drawer and descendant headings;
-- `items`: list items, including nested items, with `text`, `checkbox`
+- `items`: list items, including nested items, with `text`, read-only `text_plain`, `checkbox`
   (`" "`, `"X"`, `"-"`, or null), `line`, `indent`, `fields` and `field_lines`;
 - `tables`: arrays of rows, each with `cells` and `line`; rule rows are omitted.
+  Empty leading, middle, trailing, and whitespace-only cells retain their column
+  positions. A final closing pipe adds no extra column; a row may omit it.
+- `paragraphs`: read-only direct prose records with raw `text`, rendered `plain`,
+  one-based `line`, and half-open UTF-8 byte `start`/`end` offsets. Records retain
+  source whitespace, physical newlines, and indentation, including the prose's
+  final newline when present. Separating blank lines and affiliated keywords are
+  excluded. Drawers, tables, blocks, list-owned prose, and descendant headings
+  do not contribute direct prose records.
 
 The document also exposes `title`, `title_line`, `keywords` (key/value/line),
-`content`, `items`, and `tables` for the preamble. Valid literal blocks keep
+`content`, `items`, `tables`, and `paragraphs` for the preamble. Valid literal blocks keep
 their contents opaque. As the [Org manual](https://orgmode.org/manual/Literal-Examples.html)
 requires, comma-quote heading-like and keyword-like example lines (`,*` and
 `,#+`). An unescaped column-zero `*` remains a heading even inside a block;
@@ -35,6 +44,44 @@ schema diagnostics instead of being silently repaired.
 continuation fields as a description record. Continuation text is retained,
 including multiline values. This is an optional structured view over Org list
 items, not a YAML parser. Native `term :: definition` items also expose fields.
+
+Completed checkboxes accept both `[x]` and `[X]` and expose the normalized state
+`"X"`. Untargeted edits and no-op transformations preserve the original case;
+the writable states remain `" "`, `"X"`, and `"-"`.
+
+The additive display projections leave every raw field and its mutation span
+unchanged. `title_plain` renders the trimmed heading title. Item `text_plain`
+renders only paragraphs owned by that item, excluding bullet, checkbox,
+description-tag syntax, and child lists. Only the whole item's outer edges are
+trimmed. A paragraph's terminal LF/CRLF is replaced as needed to join separate
+paragraphs with one normalized `\n\n` separator. Other source whitespace,
+including physical newlines inside paragraphs, trailing spaces, and indentation
+of later paragraphs, is retained.
+
+Rendering follows orgize's inline nodes: balanced bold, italic, underline,
+strike-through, code, and verbatim delimiters are removed, recursively rendering
+their content. Links render their label, or their complete target when no label
+is present (including `file:`). Unmatched markup remains literal. Rendering never
+matches markup across paragraphs or headings, and literal blocks remain opaque.
+For example, `* Deploy =tool= with *care*` has raw title
+`Deploy =tool= with *care*` and `title_plain` `Deploy tool with care`.
+`- [x] Read [[file:guide.org][the /guide/]] and [[file:other.org]]` has
+`text_plain` `Read the guide and file:other.org`, while its raw `text` retains
+the link and emphasis syntax.
+
+For example, the body below has two paragraph records:
+
+```org
+* Note
+  First /line/,
+  then =code=.
+
+  Another paragraph.
+```
+
+Their `plain` values are `"  First line,\n  then code.\n"` and
+`"  Another paragraph.\n"` when the source uses LF line endings and ends with
+a newline. Their `text` and byte spans retain the original markup and spacing.
 
 ## Queries and edits
 
@@ -69,6 +116,8 @@ metadata, and deletions are read-only. Unsupported edits fail before any file
 write. Strings containing line breaks, structural delimiters, or values that
 change the parsed structure are rejected. Multiline description fields are
 queryable; mutation of a multiline field is rejected to avoid discarding layout.
+Direct edits to `title_plain`, `text_plain`, or `paragraphs` are rejected. Edit
+the existing canonical raw scalars instead; reparsing recomputes the projections.
 
 Edits replace only the selected scalar's byte span. Untargeted bytes, spacing,
 line endings, and the final newline are preserved. Changes through duplicate
