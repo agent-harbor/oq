@@ -6,7 +6,7 @@ default:
 build:
     @node scripts/logged.mjs build cargo build --locked --release -p oq
 
-test: test-native test-schema-consumer test-bindings test-package test-dist
+test: test-native test-schema-consumer test-bindings test-package test-build-provenance test-dist
 
 test-native:
     @node scripts/logged.mjs native cargo test --locked --workspace --all-targets
@@ -45,6 +45,9 @@ package: build-bindings
 
 test-package:
     @node scripts/logged.mjs package-consumer node scripts/test-package.mjs
+
+test-build-provenance:
+    @node scripts/logged.mjs build-provenance node scripts/test-build-provenance.mjs
 
 dist:
     @node scripts/logged.mjs dist-build node scripts/build-native-release.mjs

@@ -30,6 +30,10 @@ changes fail before a file write.
 
 `scripts/build-bindings.mjs` compiles the actual `oq-wasm` crate and invokes the
 locked TypeScript compiler. The wrapper only handles allocation/JSON transport.
+Each invocation owns a fresh Cargo output directory so a shared inherited target
+cannot substitute another source preparation's engine. The
+[bindings build contract](bindings-build.md) describes artifact provenance,
+cleanup, and the deliberate compiled-cache reuse tradeoff.
 Node tests compare parsed trees, queries, edited source, modes, and exact
 diagnostics with the native CLI. They also test repeated errors, Unicode,
 independent response ownership, and steady memory reuse after warmup.
@@ -39,6 +43,12 @@ consumer and executes its WASM without any source checkout dependency. A Git
 dependency also works: npm's `prepare` builds from source, requiring the pinned
 Rust toolchain with `wasm32-unknown-unknown`. Published tarballs already contain
 the WASM and declarations and require only a supported JavaScript runtime.
+
+`just test-build-provenance` additionally prepares two same-version source
+packages with old timestamps and a warm foreign Cargo target, installs them in
+isolated consumers, and checks native/WASM behavior, declarations, and cache
+preservation. It compiles the historical fixture and each selected preparation
+with real Rust, so this part of `just test` takes a few minutes.
 
 CI tests Linux x64/arm64, macOS arm64, and Windows x64/arm64 on self-hosted runners.
 Native archive builds select musl on Linux and static CRT on MSVC, following the
