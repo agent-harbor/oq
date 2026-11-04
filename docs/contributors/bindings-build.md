@@ -4,8 +4,8 @@
 
 ## Requirements
 
-A source build, including the npm Git dependency `prepare` lifecycle, must
-package the WebAssembly engine compiled from that source preparation. Matching
+A WASM build, including an installed Git dependency's `postinstall`, must
+write the WebAssembly engine compiled from that source preparation. Matching
 package versions, old source timestamps, and a warm caller-owned Cargo target
 directory must not substitute an engine from another source preparation.
 The JavaScript transport, declarations, and WASM must describe the same API.
@@ -33,16 +33,17 @@ On success or failure it removes only its own temporary build directory.
 
 ## Implementation
 
-[`scripts/build-bindings.mjs`](../../scripts/build-bindings.mjs) owns the Cargo
-subprocess and artifact selection. `npm run build`, `npm run prepare`, and
-`just build-bindings` use this same producer.
+[`scripts/build-wasm.mjs`](../../scripts/build-wasm.mjs) owns the Cargo subprocess
+and artifact selection. Explicit checkout builds and installed-source
+`postinstall` use this one producer. `npm run prepare` emits only deterministic
+source-package inputs, following the [archive/lifecycle contract](source-packages.md).
 
 ## Key integration tests
 
 The [source-preparation regression](../../scripts/test-build-provenance.mjs)
 uses the real Rust compiler, the [historical engine
 source](../../tests/fixtures/build-provenance/README.md), and the npm
-preparation/installation boundary. It warms a foreign
+explicit build, prebuilt staging, and installation boundary. It warms a foreign
 target with an older same-version engine, normalizes source mtimes, and checks
 the installed newer engine's checkbox, table, display projection, and lossless
 edit behavior against independent expected values. It verifies foreign artifact

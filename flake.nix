@@ -68,6 +68,7 @@
               pkgs.prek
               pkgs.nixfmt
               pkgs.gnupg
+              pkgs.git
               pkgs.gh
               pkgs.uv
               pkgs.python3

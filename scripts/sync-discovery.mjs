@@ -20,7 +20,7 @@ const links = `## Documentation
 - [Guide](docs/index.md): index.
 - [Contract](docs/contract.md): model, schema and API.
 - [Validation](docs/fragments/validation-example.md): executable examples.
-- [Build](docs/contributors/README.md): contributor setup.
+- [Build](docs/contributors/README.md): Git/rebuild/release setup.
 - [Agents](AGENTS.md): work commands.
 - [Full](llms-full.txt): complete reference.
 `;
@@ -29,6 +29,7 @@ const short = `# oq
 
 Install: \`cargo install --git https://github.com/agent-harbor/oq --branch dev --locked oq\`
 Nix: \`nix run github:agent-harbor/oq/dev -- --help\`
+Git JS needs Rust+scripts; release npm archives are prebuilt.
 
 \`\`\`text
 ${usage}
@@ -98,6 +99,14 @@ The @agent-harbor/oq package exports async createOq(bytes_or_module). Await it t
 get parse, query, set and validate methods. It executes the same Rust core through
 WebAssembly, with no global CLI dependency or duplicate JavaScript parser. The
 typed wrapper owns and frees buffers and turns structured errors into exceptions.
+Git dependencies fetch prepared JS/declarations and Rust sources. Their enabled
+postinstall builds WASM after fetching; Yarn verifies the locked archive checksum,
+while npm Git selects the pinned commit. Provide Cargo,
+Rust and wasm32-unknown-unknown. npm rebuild @agent-harbor/oq or yarn rebuild
+@agent-harbor/oq rebuilds installed sources. Release npm archives contain WASM
+and have no Rust install hook. Root npm ci/install prepares source inputs only;
+contributors explicitly run npm run build or just build-bindings for local WASM.
+See [source package layouts](docs/contributors/source-packages.md).
 The detailed model/schema/ABI contract follows, derived from its canonical page.
 
 ${contract}

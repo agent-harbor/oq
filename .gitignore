@@ -6,4 +6,6 @@
 /.result/
 *.ct
 /bindings/js/dist/
+/bindings/js/rust/
+/bindings/js/.oq-source-*/
 *.tgz

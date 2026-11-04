@@ -9,14 +9,16 @@ Read [docs/contract.md](docs/contract.md) before changing behavior and
 
 Enter the pinned development environment with `nix develop` from this repository,
 or use `direnv allow`. Outside Nix, `rust-toolchain.toml` pins Rust and the WASM
-target; install Node matching `.node-version` and Just 1.51.0. Do not install
+target; install Node matching `.node-version`, Just 1.51.0, and Git for the real
+Git dependency integration tests. Do not install
 dependencies through ad-hoc fallback paths.
 
 Run `just test` (native Cargo tests plus actual Node/WASM/CLI parity), `just lint`,
 `just build`, and `just package`. The complete suite includes fresh source
-preparation builds and takes a few minutes; run it when developing or reviewing
+preparation builds and takes several minutes; run it when developing or reviewing
 changes here. `just test-build-provenance` focuses on source/package integrity. Use
-`cargo test -p oq-core --test engine <name>` for iteration, followed by the complete
+`just test-source-packages` for actual npm/Yarn Git archive and installation checks.
+Use `cargo test -p oq-core --test engine <name>` for iteration, followed by the complete
 suite. Tests run through Cargo/Node; there is no Reprobuild recorded-test history.
 Every runner keeps a unique full-output log under `.result/logs/`; failures print
 the path and size. Real CLI subprocesses additionally retain separate argv/output

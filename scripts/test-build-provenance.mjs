@@ -33,6 +33,7 @@ import { dirname, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { stagePrebuilt } from "./package-layout.mjs";
 
 const root = process.cwd();
 const producerIndex = process.argv.indexOf("--producer");
@@ -127,6 +128,7 @@ function preparation(name, older = false) {
     "Cargo.toml",
     "Cargo.lock",
     "rust-toolchain.toml",
+    "oq-checkout.json",
     "crates",
     "bindings/js/src",
     "bindings/js/tsconfig.json",
@@ -325,10 +327,16 @@ fn main() {
     const wrapperCalls = environment.OQ_TEST_WRAPPER_LOG
       ? readFileSync(environment.OQ_TEST_WRAPPER_LOG, "utf8").length
       : null;
+    // Source npm pack deliberately excludes WASM. Exercise the explicit real
+    // build and the shared prebuilt staging path so the historical producer
+    // counterfactual still packages its successful (but stale) compiler output.
+    run("npm", ["run", "build"], selected, env);
+    const prebuilt = join(temporary, `prebuilt stage ${index}`);
+    stagePrebuilt(selected, prebuilt);
     const packed = run(
       "npm",
       ["pack", "--json", "--pack-destination", temporary],
-      selected,
+      prebuilt,
       env,
     );
     assert.deepEqual(

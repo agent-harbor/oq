@@ -156,8 +156,25 @@ nix run github:agent-harbor/oq/dev -- query '.title' work.org
 ```
 
 The tag workflow produces native archives for Linux x64/arm64, macOS arm64, and
-Windows x64/arm64, with SHA-256 checksums and detached signatures. The npm package
-includes its compiled WASM; it needs no native `oq` installation at runtime.
+Windows x64/arm64, with SHA-256 checksums and detached signatures. Release npm
+archives include compiled WASM and install without Rust. No JavaScript package
+needs a native `oq` executable at runtime.
+
+An immutable Git dependency instead fetches a source archive with prepared
+JavaScript/declarations and the Rust inputs. With lifecycle scripts enabled,
+dependency `postinstall` compiles its WASM after source fetching. Yarn checks its
+locked archive checksum first; npm Git selects the pinned commit.
+Provide Cargo/Rust and the `wasm32-unknown-unknown` standard library; the installer
+does not install a compiler. Rebuild a valid prepared source installation with
+`npm rebuild @agent-harbor/oq` or `yarn rebuild @agent-harbor/oq`. A Git fetch with
+preparation disabled may lack the required inputs; rebuilding cannot supply
+missing fetched files. Use a prebuilt release when build scripts are unavailable.
+The [source package contract](docs/contributors/source-packages.md) explains
+layouts and rebuild behavior.
+
+In a contributor checkout, `npm ci`/`npm install` prepare source-package inputs.
+Use `just build-bindings` or `npm run build` to build local WASM explicitly.
+`just package` and `just release-package` create the separate prebuilt archive.
 
 ```js
 import { readFile } from "node:fs/promises";

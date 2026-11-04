@@ -1,15 +1,42 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { resolve, join } from "node:path";
+// Install the official prebuilt archive with default scripts and no Rust on PATH.
+// Real npm, filesystem, exported JS/declarations, and WASM; no installation mocks.
+import assert from "node:assert/strict";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs";
+import { resolve, join, dirname, delimiter } from "node:path";
 import { spawnSync } from "node:child_process";
 mkdirSync(".result", { recursive: true });
 const root = process.cwd();
 const temporary = mkdtempSync(resolve(".result/npm-consumer-"));
-function run(command, args, cwd = root) {
-  const result = spawnSync(command, args, {
-    cwd,
-    encoding: "utf8",
-    shell: process.platform === "win32" && command === "npm",
-  });
+const windows = process.platform === "win32";
+const npm = windows
+  ? process.execPath
+  : process.env.PATH.split(delimiter)
+      .map((directory) => join(directory, "npm"))
+      .find(existsSync);
+assert.ok(npm, "npm must be available in the development environment");
+function run(command, args, cwd = root, env = process.env) {
+  const result = spawnSync(
+    command === "npm" ? npm : command,
+    command === "npm" && windows
+      ? [
+          join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
+          ...args,
+        ]
+      : args,
+    {
+      cwd,
+      encoding: "utf8",
+      env,
+    },
+  );
   console.log(JSON.stringify({ command, args, cwd, status: result.status }));
   process.stdout.write(result.stdout ?? "");
   process.stderr.write(result.stderr ?? "");
@@ -18,27 +45,46 @@ function run(command, args, cwd = root) {
   return result.stdout;
 }
 try {
-  const packed = JSON.parse(
-    run("npm", [
-      "pack",
-      "--ignore-scripts",
-      "--json",
-      "--pack-destination",
-      temporary,
-    ]),
+  const version = JSON.parse(readFileSync("package.json", "utf8")).version;
+  const archive = resolve(".result", `agent-harbor-oq-${version}.tgz`);
+  assert.ok(
+    existsSync(archive),
+    "run just package to build the prebuilt archive",
   );
-  const archive = join(temporary, packed[0].filename);
   const consumer = join(temporary, "consumer");
   mkdirSync(consumer);
   writeFileSync(
     join(consumer, "package.json"),
     '{"private":true,"type":"module"}\n',
   );
+  const runtimeBin = join(temporary, "runtime-bin");
+  mkdirSync(runtimeBin);
+  if (!windows) symlinkSync(process.execPath, join(runtimeBin, "node"));
+  const runtimeEnvironment = {
+    ...process.env,
+    PATH: windows ? dirname(process.execPath) : runtimeBin,
+  };
+  for (const compiler of ["cargo", "rustc"])
+    assert.equal(
+      spawnSync(compiler, ["--version"], { env: runtimeEnvironment }).error
+        ?.code,
+      "ENOENT",
+      `${compiler} must be unavailable`,
+    );
   run(
     "npm",
-    ["install", "--ignore-scripts", "--no-audit", "--no-fund", archive],
+    ["install", "--no-audit", "--no-fund", archive],
     consumer,
+    runtimeEnvironment,
   );
+  const installed = join(consumer, "node_modules/@agent-harbor/oq");
+  const manifest = JSON.parse(
+    readFileSync(join(installed, "package.json"), "utf8"),
+  );
+  assert.deepEqual(manifest.oqPackage, { format: 1, kind: "prebuilt" });
+  assert.equal(manifest.scripts, undefined);
+  assert.equal(manifest.devDependencies, undefined);
+  assert.equal(existsSync(join(installed, "bindings/js/rust")), false);
   run(
     process.execPath,
     [
@@ -62,6 +108,7 @@ try {
   `,
     ],
     consumer,
+    runtimeEnvironment,
   );
 } finally {
   rmSync(temporary, { recursive: true, force: true });

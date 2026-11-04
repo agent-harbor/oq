@@ -1,0 +1,15 @@
+# Canonical source-package inputs; byte-sensitive test documents are unaffected.
+/package*.json text eol=lf
+/oq-checkout.json text eol=lf
+/Cargo.toml text eol=lf
+/Cargo.lock text eol=lf
+/rust-toolchain.toml text eol=lf
+/crates/*/Cargo.toml text eol=lf
+/crates/*/src/** text eol=lf
+/bindings/js/src/** text eol=lf
+/bindings/js/tsconfig.json text eol=lf
+/scripts/*.mjs text eol=lf
+/README.md text eol=lf
+/LICENSE text eol=lf
+/docs/contract.md text eol=lf
+/tests/fixtures/** -text

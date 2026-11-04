@@ -12,21 +12,50 @@
     "./oq.wasm": "./bindings/js/dist/oq.wasm"
   },
   "files": [
-    "bindings/js/dist",
+    "bindings/js/dist/index.js",
+    "bindings/js/dist/index.d.ts",
     "README.md",
     "LICENSE",
-    "docs/contract.md"
+    "docs/contract.md",
+    "scripts/build-bindings.mjs",
+    "scripts/build-wasm.mjs",
+    "scripts/package-layout.mjs",
+    "scripts/prepare-package.mjs",
+    "scripts/install-bindings.mjs",
+    "scripts/check-source-publish.mjs",
+    "bindings/js/rust/Cargo.toml",
+    "bindings/js/rust/Cargo.lock",
+    "bindings/js/rust/rust-toolchain.toml",
+    "bindings/js/rust/crates/oq-core/Cargo.toml",
+    "bindings/js/rust/crates/oq-core/src/document.rs",
+    "bindings/js/rust/crates/oq-core/src/edit.rs",
+    "bindings/js/rust/crates/oq-core/src/expression.rs",
+    "bindings/js/rust/crates/oq-core/src/lib.rs",
+    "bindings/js/rust/crates/oq-core/src/schema.rs",
+    "bindings/js/rust/crates/oq-wasm/Cargo.toml",
+    "bindings/js/rust/crates/oq-wasm/src/lib.rs",
+    "bindings/js/rust/crates/oq/Cargo.toml",
+    "bindings/js/rust/crates/oq/src/help.txt",
+    "bindings/js/rust/crates/oq/src/lib.rs",
+    "bindings/js/rust/crates/oq/src/main.rs"
   ],
   "scripts": {
     "build": "node scripts/build-bindings.mjs",
-    "prepare": "npm run build",
-    "test": "node --test bindings/js/tests/*.test.mjs"
+    "prepare": "node scripts/prepare-package.mjs",
+    "test": "node --test bindings/js/tests/*.test.mjs",
+    "postinstall": "node scripts/install-bindings.mjs",
+    "prepublishOnly": "node scripts/check-source-publish.mjs"
   },
   "devDependencies": {
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "@yarnpkg/cli-dist": "4.13.0"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/agent-harbor/oq.git"
+  },
+  "oqPackage": {
+    "format": 1,
+    "kind": "source"
   }
 }

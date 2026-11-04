@@ -3,6 +3,7 @@
 
 Install: `cargo install --git https://github.com/agent-harbor/oq --branch dev --locked oq`
 Nix: `nix run github:agent-harbor/oq/dev -- --help`
+Git JS needs Rust+scripts; release npm archives are prebuilt.
 
 ```text
   oq query <jq-expression> <file.org>
@@ -86,6 +87,6 @@ Exit 2: `--schema` is required even if a schema file exists nearby.
 - [Guide](docs/index.md): index.
 - [Contract](docs/contract.md): model, schema and API.
 - [Validation](docs/fragments/validation-example.md): executable examples.
-- [Build](docs/contributors/README.md): contributor setup.
+- [Build](docs/contributors/README.md): Git/rebuild/release setup.
 - [Agents](AGENTS.md): work commands.
 - [Full](llms-full.txt): complete reference.
